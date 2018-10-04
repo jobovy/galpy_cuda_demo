@@ -42,8 +42,10 @@ class npOrbits:
         """
         M_s = np.float32(1.)  # solar mass
         G = np.float32(39.5)  # newtonian constant of gravitation
+        vc2= np.float32(1.) # circular velocity squared of log potential
 
-        R3 = lambda x, y: (x ** 2 + y ** 2) ** (3 / 2)
+        R2 = lambda x, y: (x ** 2 + y ** 2)
+        #R3 = lambda x, y: (x ** 2 + y ** 2) ** (3 / 2)
 
         x_result = np.empty((self.num_of_obj, steps)).astype(np.float32)
         y_result = np.empty((self.num_of_obj, steps)).astype(np.float32)
@@ -57,12 +59,20 @@ class npOrbits:
 
         tdt= dt/n_intermediate_steps
         for t in range(0, steps - 1):
+            # drift
+            x_result[:, t + 1] = x_result[:, t] + tdt/2. * vx_result[:, t]
+            y_result[:, t + 1] = y_result[:, t] + tdt/2. * vy_result[:, t]
+            vx_result[:, t + 1] = vx_result[:, t]
+            vy_result[:, t + 1] = vy_result[:, t]
             for ii in range(n_intermediate_steps):
-                vx_result[:, t + 1] = vx_result[:, t] - tdt * (G * M_s * x_result[:, t] / R3(x_result[:, t], y_result[:, t]))
-                vy_result[:, t + 1] = vy_result[:, t] - tdt * (G * M_s * y_result[:, t] / R3(x_result[:, t], y_result[:, t]))
-                x_result[:, t + 1] = x_result[:, t] + tdt * vx_result[:, t + 1]
-                y_result[:, t + 1] = y_result[:, t] + tdt * vy_result[:, t + 1]
-
+                # kick
+                vx_result[:, t + 1] -= tdt * vc2 * x_result[:, t + 1] / R2(x_result[:, t + 1], y_result[:, t + 1])
+                vy_result[:, t + 1] -= tdt * vc2 * y_result[:, t + 1] / R2(x_result[:, t + 1], y_result[:, t + 1])
+                # drift
+                x_result[:, t + 1] += tdt * vx_result[:, t + 1]
+                y_result[:, t + 1] += tdt * vy_result[:, t + 1]
+            x_result[:, t + 1] -= tdt/2. * vx_result[:, t + 1]
+            y_result[:, t + 1] -= tdt/2. * vy_result[:, t + 1]
         self.x = x_result
         self.y = y_result
         self.vx = vx_result
@@ -76,4 +86,5 @@ class npOrbits:
  
     @property
     def E(self):
-        return 0.5*(self.vx**2.+self.vy**2.)-39.5/np.sqrt(self.x**2 + self.y**2)
+        return 0.5*(self.vx**2.+self.vy**2.)+np.log(self.R)
+#        return 0.5*(self.vx**2.+self.vy**2.)-39.5/np.sqrt(self.x**2 + self.y**2)
