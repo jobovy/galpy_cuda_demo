@@ -30,7 +30,7 @@ class npOrbits:
 
         self.mode = 'Numpy'
 
-    def integrate(self, steps=1000, dt=0.1):
+    def integrate(self, steps=1000, dt=0.1,n_intermediate_steps=1):
         """
         Orbit Integration
 
@@ -38,6 +38,7 @@ class npOrbits:
         :type steps: int
         :param dt: delta t between steps
         :type dt: float
+        :type n_intermediate_steps: int
         """
         M_s = np.float32(1.)  # solar mass
         G = np.float32(39.5)  # newtonian constant of gravitation
@@ -54,11 +55,13 @@ class npOrbits:
         vx_result[:, 0] = self.vx
         vy_result[:, 0] = self.vy
 
+        tdt= dt/n_intermediate_steps
         for t in range(0, steps - 1):
-            vx_result[:, t + 1] = vx_result[:, t] - dt * (G * M_s * x_result[:, t] / R3(x_result[:, t], y_result[:, t]))
-            vy_result[:, t + 1] = vy_result[:, t] - dt * (G * M_s * y_result[:, t] / R3(x_result[:, t], y_result[:, t]))
-            x_result[:, t + 1] = x_result[:, t] + dt * vx_result[:, t + 1]
-            y_result[:, t + 1] = y_result[:, t] + dt * vy_result[:, t + 1]
+            for ii in range(n_intermediate_steps):
+                vx_result[:, t + 1] = vx_result[:, t] - tdt * (G * M_s * x_result[:, t] / R3(x_result[:, t], y_result[:, t]))
+                vy_result[:, t + 1] = vy_result[:, t] - tdt * (G * M_s * y_result[:, t] / R3(x_result[:, t], y_result[:, t]))
+                x_result[:, t + 1] = x_result[:, t] + tdt * vx_result[:, t + 1]
+                y_result[:, t + 1] = y_result[:, t] + tdt * vy_result[:, t + 1]
 
         self.x = x_result
         self.y = y_result
@@ -70,3 +73,7 @@ class npOrbits:
     @property
     def R(self):
         return np.sqrt(self.x**2 + self.y**2)
+ 
+    @property
+    def E(self):
+        return 0.5*(self.vx**2.+self.vy**2.)-39.5/np.sqrt(self.x**2 + self.y**2)
