@@ -7,10 +7,16 @@
 
 #define M_s 1.f // Solar mass
 #define G 39.5f// Gravitational constant Solar mass, AU
+# define vc2 1.f
 
 // single precision CUDA function to be called on GPU
 __device__ float potential_thingy(float x, float y) {
     return G * M_s * x / powf((powf(x, 2) + powf(y, 2)), 1.5f);
+}
+
+// single precision CUDA function to be called on GPU
+__device__ float potential_log(float x, float y) {
+  return vc2 * x/ (powf(x, 2) + powf(y, 2));
 }
 
 // euler method
@@ -64,8 +70,8 @@ __global__ void leapfrog_integration(float *x_out, float *y_out,
 	// directly assigning to x_out[n*current_step+tid] etc. does not work
 	// for some reason...
 	// kick
-	tvx = tvx - potential_thingy(tx,ty)*tdt;
-	tvy = tvy - potential_thingy(ty,tx)*tdt;
+	tvx = tvx - potential_log(tx,ty)*tdt;
+	tvy = tvy - potential_log(ty,tx)*tdt;
 	// drift
 	tx = tx + tvx * tdt;
 	ty = ty + tvy * tdt;

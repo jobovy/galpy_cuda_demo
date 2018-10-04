@@ -77,4 +77,5 @@ class CUDAOrbits:
 
     @property
     def E(self):
-        return 0.5*(self.vx**2.+self.vy**2.)-39.5/np.sqrt(self.x**2 + self.y**2)
+        return 0.5*(self.vx**2.+self.vy**2.)+np.log(self.R)
+#        return 0.5*(self.vx**2.+self.vy**2.)-39.5/np.sqrt(self.x**2 + self.y**2)
