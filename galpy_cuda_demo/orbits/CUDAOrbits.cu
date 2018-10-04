@@ -43,21 +43,42 @@ __global__ void euler_integration(float *x_out, float *y_out,
     }
 }
 
-// euler method for velocity component
-__global__ void euler_integration_vx(float *x_out, float *y_out, float *vx_out, int n, int steps, int current_step, float dt) {
+// euler method
+__global__ void leapfrog_integration(float *x_out, float *y_out, 
+				     float *vx_out, float *vy_out, 
+				     int n, int steps, int current_step, 
+				     float dt, int n_intermediate_steps) {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int ii;
+    float tdt= dt/n_intermediate_steps;
+    float tx,ty,tvx,tvy;
+    tx= x_out[(n*current_step-n)+tid];
+    ty= y_out[(n*current_step-n)+tid];
+    tvx= vx_out[(n*current_step-n)+tid];
+    tvy= vy_out[(n*current_step-n)+tid];
     while (tid < n){
-        vx_out[n*current_step+tid] = vx_out[(n*current_step-n)+tid] - potential_thingy(x_out[(n*current_step-n)+tid], y_out[(n*current_step-n)+tid]) * dt;
-        tid += gridDim.x * blockDim.x;
-    }
-}
-
-// euler method for position component
-__global__ void euler_integration_x(float *x_out, float *vx_out, int n, int steps, int current_step, float dt) {
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    while (tid < n){
-        x_out[n*current_step+tid] = x_out[(n*current_step-n)+tid] + vx_out[n*current_step+tid] * dt;
-        tid += gridDim.x * blockDim.x;
+      // drift
+      tx = tx + tvx * tdt/2.;
+      ty = ty + tvy * tdt/2.;
+      for (ii=0; ii < n_intermediate_steps; ii++) {
+	// directly assigning to x_out[n*current_step+tid] etc. does not work
+	// for some reason...
+	// kick
+	tvx = tvx - potential_thingy(tx,ty)*tdt;
+	tvy = tvy - potential_thingy(ty,tx)*tdt;
+	// drift
+	tx = tx + tvx * tdt;
+	ty = ty + tvy * tdt;
+      }
+      // drifted too far! Go back half a step
+      tx = tx - tvx * tdt/2.;
+      ty = ty - tvy * tdt/2.;
+      // save
+      x_out[n*current_step+tid]= tx;
+      y_out[n*current_step+tid]= ty;
+      vx_out[n*current_step+tid]= tvx;
+      vy_out[n*current_step+tid]= tvy;
+      tid += gridDim.x * blockDim.x;
     }
 }
 
@@ -92,7 +113,8 @@ extern "C" int integrate_euler_cuda(float *x, float *y, float *vx, float *vy, fl
     int cstep = 1;  // keep track of the time in integration
     while (cstep < steps){
         // integrate
-      euler_integration<<<128, 128, 0, stream[0]>>>(dev_x_out, dev_y_out, dev_vx_out, dev_vy_out, n, steps, cstep, dt,n_intermediate_steps);
+      //euler_integration<<<128, 128, 0, stream[0]>>>(dev_x_out, dev_y_out, dev_vx_out, dev_vy_out, n, steps, cstep, dt,n_intermediate_steps);
+      leapfrog_integration<<<128, 128, 0, stream[0]>>>(dev_x_out, dev_y_out, dev_vx_out, dev_vy_out, n, steps, cstep, dt,n_intermediate_steps);
         cudaMemcpyAsync(&vx_out[cstep*n], &dev_vx_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[0]);
         cudaMemcpyAsync(&vy_out[cstep*n], &dev_vy_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[0]);
         cudaMemcpyAsync(&x_out[cstep*n], &dev_x_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[0]);
