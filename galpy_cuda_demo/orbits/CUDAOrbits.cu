@@ -13,6 +13,36 @@ __device__ float potential_thingy(float x, float y) {
     return G * M_s * x / powf((powf(x, 2) + powf(y, 2)), 1.5f);
 }
 
+// euler method
+__global__ void euler_integration(float *x_out, float *y_out, 
+				  float *vx_out, float *vy_out, 
+				  int n, int steps, int current_step, 
+				  float dt, int n_intermediate_steps) {
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int ii;
+    float tdt= dt/n_intermediate_steps;
+    float tx,ty,tvx,tvy;
+    tx= x_out[(n*current_step-n)+tid];
+    ty= y_out[(n*current_step-n)+tid];
+    tvx= vx_out[(n*current_step-n)+tid];
+    tvy= vy_out[(n*current_step-n)+tid];
+    while (tid < n){
+      for (ii=0; ii < n_intermediate_steps; ii++) {
+	// directly assigning to x_out[n*current_step+tid] etc. does not work
+	// for some reason...
+	tvx = tvx - potential_thingy(tx,ty)*tdt;
+	tvy = tvy - potential_thingy(ty,tx)*tdt;
+	tx = tx + tvx * tdt;
+	ty = ty + tvy * tdt;
+      }
+      x_out[n*current_step+tid]= tx;
+      y_out[n*current_step+tid]= ty;
+      vx_out[n*current_step+tid]= tvx;
+      vy_out[n*current_step+tid]= tvy;
+      tid += gridDim.x * blockDim.x;
+    }
+}
+
 // euler method for velocity component
 __global__ void euler_integration_vx(float *x_out, float *y_out, float *vx_out, int n, int steps, int current_step, float dt) {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
@@ -32,12 +62,12 @@ __global__ void euler_integration_x(float *x_out, float *vx_out, int n, int step
 }
 
 extern "C" int integrate_euler_cuda(float *x, float *y, float *vx, float *vy, float *x_out, float *y_out, float *vx_out,
-                                    float *vy_out, int n, int steps, float dt) {
+                                    float *vy_out, int n, int steps, float dt,int n_intermediate_steps) {
     // dev_** variables for variables on CUDA device
     float *dev_x_out, *dev_y_out, *dev_vx_out, *dev_vy_out;
 
     // streams related constants and things
-    const int nStreams = 4;
+    const int nStreams = 1;
 
     // stream for kernel
     cudaStream_t stream[nStreams];
@@ -61,18 +91,12 @@ extern "C" int integrate_euler_cuda(float *x, float *y, float *vx, float *vy, fl
     // loop time, because time steps cannot be paralleled
     int cstep = 1;  // keep track of the time in integration
     while (cstep < steps){
-        // integrate velocity first in 2 concurrent kernel
-        euler_integration_vx<<<128, 128, 0, stream[0]>>>(dev_x_out, dev_y_out, dev_vx_out, n, steps, cstep, dt);
-        euler_integration_vx<<<128, 128, 0, stream[1]>>>(dev_y_out, dev_x_out, dev_vy_out, n, steps, cstep, dt);
-        // as soon as any kernel finished computation, send the data back to CPU host
+        // integrate
+      euler_integration<<<128, 128, 0, stream[0]>>>(dev_x_out, dev_y_out, dev_vx_out, dev_vy_out, n, steps, cstep, dt,n_intermediate_steps);
         cudaMemcpyAsync(&vx_out[cstep*n], &dev_vx_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[0]);
-        cudaMemcpyAsync(&vy_out[cstep*n], &dev_vy_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[1]);
-        // as soon as above finished, start corresponding position computation
-        euler_integration_x<<<128, 128, 0, stream[2]>>>(dev_x_out, dev_vx_out, n, steps, cstep, dt);
-        euler_integration_x<<<128, 128, 0, stream[3]>>>(dev_y_out, dev_vy_out, n, steps, cstep, dt);
-        // as soon as any kernel finished computation, send the data back to CPU host
-        cudaMemcpyAsync(&x_out[cstep*n], &dev_x_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[2]);
-        cudaMemcpyAsync(&y_out[cstep*n], &dev_y_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[3]);
+        cudaMemcpyAsync(&vy_out[cstep*n], &dev_vy_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[0]);
+        cudaMemcpyAsync(&x_out[cstep*n], &dev_x_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[0]);
+        cudaMemcpyAsync(&y_out[cstep*n], &dev_y_out[cstep*n], n * sizeof(float), cudaMemcpyDeviceToHost, stream[0]);
         // make sure above all finished to start next time step because next time step depends on this step
         cudaDeviceSynchronize();
         cstep += 1;

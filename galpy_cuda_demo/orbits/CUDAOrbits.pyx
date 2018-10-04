@@ -4,7 +4,7 @@ cimport numpy as np
 
 cdef extern from "./CUDAOrbits.h":
     int integrate_euler_cuda(float *x, float *y, float *vx, float *vy, float *x_out, float *y_out, float *vx_out,
-                             float *vy_out, int n, int steps, float dt) nogil
+                             float *vy_out, int n, int steps, float dt, int n_intermediate_steps) nogil
 
 
 class CUDAOrbits:
@@ -36,7 +36,7 @@ class CUDAOrbits:
 
         self.mode = 'CUDA'
 
-    def integrate(self, steps=1000, dt=0.1):
+    def integrate(self, steps=1000, dt=0.1,n_intermediate_steps=1):
         """
         Orbit Integration
 
@@ -44,6 +44,7 @@ class CUDAOrbits:
         :type steps: int
         :param dt: delta t between steps
         :type dt: float
+        :type n_intermediate_steps: int
         """
 
         # declare type
@@ -58,7 +59,8 @@ class CUDAOrbits:
 
         # integrate on CUDA GPU
         integrate_euler_cuda(&x_c[0], &y_c[0], &vx_c[0], &vy_c[0], &x_c_out[0], &y_c_out[0], &vx_c_out[0], &vy_c_out[0],
-                             self.num_of_obj, steps, dt)
+                             self.num_of_obj, steps, dt,
+			     n_intermediate_steps)
 
         # CUDA should send back the whole array back to corresponding CPU memory address, we just need to put it in
         # the right python variable
@@ -72,3 +74,7 @@ class CUDAOrbits:
     @property
     def R(self):
         return np.sqrt(self.x**2 + self.y**2)
+
+    @property
+    def E(self):
+        return 0.5*(self.vx**2.+self.vy**2.)-39.5/np.sqrt(self.x**2 + self.y**2)
